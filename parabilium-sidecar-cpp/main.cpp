@@ -17,12 +17,12 @@ std::string CalcHmacSHA256(std::string_view decodedKey, std::string_view msg) {
 	return std::string{ reinterpret_cast<char const*>(hash.data()), hashLen };
 }
 
-std::string base64_encode(BYTE const* buf, unsigned int bufLen) {
+std::string base64_encode(unsigned char const* buf, unsigned int bufLen) {
 	std::string ret;
 	int i = 0;
 	int j = 0;
-	BYTE char_array_3[3];
-	BYTE char_array_4[4];
+	unsigned char char_array_3[3];
+	unsigned char char_array_4[4];
 
 	while (bufLen--) {
 		char_array_3[i++] = *(buf++);
@@ -134,15 +134,14 @@ static invocation_response my_handler(invocation_request const& req) {
 		}
 	}
 
-	//store it locally with the cert bundle 
-	Mat image = imread("/path/to/image.png",
-		IMREAD_COLOR);
+	//load image stored locally with the cert bundle 
+	Mat image = imread("/path/to/image.png", IMREAD_COLOR);
 
 	//check if image is present
 	if (!image.data) {
 		return invocation_response::failure("image not found", "could not get image");
 	}
-
+	
 	// write on image
 	Point pan_point(1, 30);
 	putText(image, card.at("pan").get<std::string>(), pan_point,
@@ -162,6 +161,7 @@ static invocation_response my_handler(invocation_request const& req) {
 	std::vector<uchar> buf;
 	cv::imencode(".jpg", image, buf);
 	auto* enc_msg = reinterpret_cast<unsigned char*>(buf.data());
+
 	std::string encoded_image = base64_encode(enc_msg, buf.size());
 
 	response["image"] = encoded_image;

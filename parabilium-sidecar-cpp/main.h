@@ -1,6 +1,6 @@
-#pragma once
+#ifndef CREATE_CARD_H
+#define CREATE_CARD_H
 #include <iostream>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <array>
@@ -11,7 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #define CPPHTTPLIB_OPENSSL_SUPPORT
-#include "httplib.h"
+#include <httplib.h>
 
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
@@ -30,3 +30,4 @@ static const std::string base64_chars =
 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 "abcdefghijklmnopqrstuvwxyz"
 "0123456789+/";
+#endif
