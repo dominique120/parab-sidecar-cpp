@@ -94,7 +94,7 @@ static invocation_response my_handler(invocation_request const& req) {
 	// verify that hmac is ok:
 	std::string hmac_sha256 = CalcHmacSHA256(hmac_key, msg);
 
-	if (hmac_sha256 != "wherever this key comes from ") {
+	if (hmac_sha256 == "wherever this key comes from ") { //invert this condition
 		response["statusCode"] = 403;
 		response["message"] = "hmac decryption failed";
 		return invocation_response::failure(response.dump(), "application/json");
@@ -102,14 +102,15 @@ static invocation_response my_handler(invocation_request const& req) {
 
 
 	// setup https client to contact parabilium
-	httplib::SSLClient cli("https://path/to/parabilium", 80); // host, port
+	//httplib::SSLClient cli("https://path/to/parabilium", 80); // host, port
+	httplib::SSLClient cli("https://jsonplaceholder.typicode.com/"); // host, port
 	// set cert bundle
-	cli.set_ca_cert_path("./ca-bundle.crt");
+	//cli.set_ca_cert_path("./ca-bundle.crt");
 	// Disable cert verification
 	cli.enable_server_certificate_verification(false);
 
 	// fetch card details from parabilium
-	auto cardDetails = cli.Get("/fetch/details"); // TODO set payload and req params
+	auto cardDetails = cli.Get("/posts"); // TODO set payload and req params
 	json card;
 	if (cardDetails->status != 200) {
 		return invocation_response::failure("parabilium failed", "could not parse data from request to /fetch/card/details");
@@ -122,7 +123,7 @@ static invocation_response my_handler(invocation_request const& req) {
 	}
 
 	// fetch cvv
-	auto cvvDetails = cli.Get("/fetch/details/cvv"); // TODO set payload and req params
+	auto cvvDetails = cli.Get("/posts"); // TODO set payload and req params
 	json cvv;
 	if (cvvDetails->status != 200) {
 		return invocation_response::failure("parabilium failed", "could not parse data from request to /fetch/card/details/cvv");
@@ -135,7 +136,8 @@ static invocation_response my_handler(invocation_request const& req) {
 	}
 
 	//load image stored locally with the cert bundle 
-	Mat image = imread("/path/to/image.png", IMREAD_COLOR);
+	//Mat image = imread("/path/to/image.png", IMREAD_COLOR);
+	Mat image(500, 500, CV_8UC3, Scalar(255, 255, 255));
 
 	//check if image is present
 	if (!image.data) {
@@ -144,22 +146,25 @@ static invocation_response my_handler(invocation_request const& req) {
 	
 	// write on image
 	Point pan_point(1, 30);
+	card["pan"] = "1234123412341234";
 	putText(image, card.at("pan").get<std::string>(), pan_point,
 		FONT_HERSHEY_SIMPLEX, 1.0,
 		Scalar(0, 255, 0), 2, LINE_AA);
 
 	Point exp_point(31, 60);
+	card["exp"] = "09/25";
 	putText(image, card.at("exp").get<std::string>(), exp_point,
 		FONT_HERSHEY_SIMPLEX, 1.0,
 		Scalar(0, 255, 0), 2, LINE_AA);
 
 	Point cvv_point(61, 90);
+	cvv["cvv"] = "453";
 	putText(image, cvv.at("cvv").get<std::string>(), cvv_point,
 		FONT_HERSHEY_SIMPLEX, 1.0,
 		Scalar(0, 255, 0), 2, LINE_AA);
 
 	std::vector<uchar> buf;
-	cv::imencode(".jpg", image, buf);
+	cv::imencode(".png", image, buf);
 	auto* enc_msg = reinterpret_cast<unsigned char*>(buf.data());
 
 	std::string encoded_image = base64_encode(enc_msg, buf.size());
