@@ -70,8 +70,8 @@ static invocation_response my_handler(invocation_request const& req) {
 
 	//set up initial rsponse params
 	json response;
-	response["isBase64Encoded"] = false;
-	response["headers"]["Content-Type"] = "application/json";
+	response["isBase64Encoded"] = true;
+	response["headers"]["Content-Type"] = "image/png";
 	//response["headers"]["Access-Control-Allow-Origin"] = "todo";
 	response["headers"]["Access-Control-Allow-Credentials"] = "true";
 	response["headers"]["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
@@ -90,7 +90,7 @@ static invocation_response my_handler(invocation_request const& req) {
 		return invocation_response::failure(response.dump(), "application/json");
 	}
 
-	std::string_view msg = payload.at("body").get<std::string_view>();
+	std::string_view msg = "msg";
 	// verify that hmac is ok:
 	std::string hmac_sha256 = CalcHmacSHA256(hmac_key, msg);
 
@@ -100,18 +100,20 @@ static invocation_response my_handler(invocation_request const& req) {
 		return invocation_response::failure(response.dump(), "application/json");
 	}
 
-
+	std::cout << "Init done, setting up https ssl client" << std::endl;
 	// setup https client to contact parabilium
 	//httplib::SSLClient cli("https://path/to/parabilium", 80); // host, port
-	httplib::SSLClient cli("https://jsonplaceholder.typicode.com/"); // host, port
+	httplib::Client cli("http://jsonplaceholder.typicode.com"); // host, port
 	// set cert bundle
-	//cli.set_ca_cert_path("./ca-bundle.crt");
+	//cli.set_ca_cert_path("/etc/pki/tls/certs/ca-bundle.crt");
 	// Disable cert verification
-	cli.enable_server_certificate_verification(false);
+	//cli.enable_server_certificate_verification(false);
 
 	// fetch card details from parabilium
-	auto cardDetails = cli.Get("/posts"); // TODO set payload and req params
+	std::cout << "fetch data 1" << std::endl;
+	auto cardDetails = cli.Get("/posts/1"); // TODO set payload and req params
 	json card;
+	std::cout << "parsing data 1" << std::endl;
 	if (cardDetails->status != 200) {
 		return invocation_response::failure("parabilium failed", "could not parse data from request to /fetch/card/details");
 	} else {
@@ -123,8 +125,10 @@ static invocation_response my_handler(invocation_request const& req) {
 	}
 
 	// fetch cvv
-	auto cvvDetails = cli.Get("/posts"); // TODO set payload and req params
+	std::cout << "fetch data 2" << std::endl;
+	auto cvvDetails = cli.Get("/posts/1"); // TODO set payload and req params
 	json cvv;
+	std::cout << "parsing data 2" << std::endl;
 	if (cvvDetails->status != 200) {
 		return invocation_response::failure("parabilium failed", "could not parse data from request to /fetch/card/details/cvv");
 	} else {
@@ -135,8 +139,12 @@ static invocation_response my_handler(invocation_request const& req) {
 		}
 	}
 
+	std::string taskRoot = std::getenv("LAMBDA_TASK_ROOT");
+	std::cout << taskRoot << std::endl;
+
 	//load image stored locally with the cert bundle 
-	//Mat image = imread("/path/to/image.png", IMREAD_COLOR);
+	//std::cout << "setting up image" << std::endl;
+	//Mat image = imread(taskRoot + "/card.png", IMREAD_COLOR);
 	Mat image(500, 500, CV_8UC3, Scalar(255, 255, 255));
 
 	//check if image is present
@@ -144,36 +152,41 @@ static invocation_response my_handler(invocation_request const& req) {
 		return invocation_response::failure("image not found", "could not get image");
 	}
 	
+	std::cout << "write to image" << std::endl;
+
 	// write on image
 	Point pan_point(1, 30);
-	card["pan"] = "1234123412341234";
+	card = R"({"pan": "1234123412341234"})"_json;
 	putText(image, card.at("pan").get<std::string>(), pan_point,
 		FONT_HERSHEY_SIMPLEX, 1.0,
 		Scalar(0, 255, 0), 2, LINE_AA);
 
 	Point exp_point(31, 60);
-	card["exp"] = "09/25";
+	card = R"({"exp": "12/28"})"_json;
 	putText(image, card.at("exp").get<std::string>(), exp_point,
 		FONT_HERSHEY_SIMPLEX, 1.0,
 		Scalar(0, 255, 0), 2, LINE_AA);
 
 	Point cvv_point(61, 90);
-	cvv["cvv"] = "453";
+	cvv = R"({"cvv": "123"})"_json;
 	putText(image, cvv.at("cvv").get<std::string>(), cvv_point,
 		FONT_HERSHEY_SIMPLEX, 1.0,
 		Scalar(0, 255, 0), 2, LINE_AA);
 
+	std::cout << "encode image" << std::endl;
 	std::vector<uchar> buf;
 	cv::imencode(".png", image, buf);
 	auto* enc_msg = reinterpret_cast<unsigned char*>(buf.data());
 
+	std::cout << "base64 to image" << std::endl;
+
 	std::string encoded_image = base64_encode(enc_msg, buf.size());
 
-	response["image"] = encoded_image;
+	response["body"] = encoded_image;
 	response["statusCode"] = 200;
 	response["message"] = "ok";
 
-	return invocation_response::success(response.dump(), "application/json");
+	return invocation_response::success(response.dump(), "image/png");
 }
 
 int main() {

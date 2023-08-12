@@ -5,7 +5,7 @@ project(parabilium-get-card-data LANGUAGES CXX)
 set(aws-lambda-runtime_DIR "/root/lambda-install/lib64/aws-lambda-runtime/cmake/")
 
 find_package(aws-lambda-runtime REQUIRED)
-find_package(AWSSDK COMPONENTS core)
+#find_package(AWSSDK COMPONENTS core)
 find_package(httplib CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -17,7 +17,7 @@ add_executable(${PROJECT_NAME} "main.cpp")
 target_link_libraries(${PROJECT_NAME} 
 	PUBLIC 
 	AWS::aws-lambda-runtime 
-	${AWSSDK_LINK_LIBRARIES} 
+	#${AWSSDK_LINK_LIBRARIES} 
 	httplib::httplib
 	nlohmann_json::nlohmann_json
 	OpenSSL::SSL 
@@ -25,4 +25,4 @@ target_link_libraries(${PROJECT_NAME}
 	${OpenCV_LIBS}
 	)
 
-aws_lambda_package_target(${PROJECT_NAME})
+aws_lambda_package_target(${PROJECT_NAME} NO_LIBC)
