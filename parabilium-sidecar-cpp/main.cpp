@@ -57,17 +57,63 @@ std::string base64_encode(unsigned char const* buf, unsigned int bufLen) {
 	return ret;
 }
 
+std::string get_image() {
+	httplib::Client imgCli("http://dv-image-test.s3.us-east-2.amazonaws.com"); // host, port
+	auto img = imgCli.Get("/card.png");
+
+	if (img->status != 200) {
+		return "";
+	} else {
+		return img->body;
+	}
+}
+
+std::pair<std::string, std::string> get_pan_and_exp() {
+	httplib::Client cli("http://dv-image-test.s3.us-east-2.amazonaws.com"); // host, port
+
+	auto cardDetails = cli.Get("/cards.json"); // TODO set payload and req params
+	json card;
+	std::cout << "parsing data pan" << std::endl;
+	if (cardDetails->status != 200) {
+		return std::make_pair<std::string, std::string>("error", "parabilium failed");
+	} else {
+		try {
+			card = json::parse(cardDetails->body);
+			return std::make_pair<std::string, std::string>(card[dist(rng)].at("pan").get<std::string>(), card[dist(rng)].at("exp").get<std::string>());
+		} catch (json::exception& e) {
+			return std::make_pair<std::string, std::string>("error", "could not parse /get/card");
+		}
+	}
+}
+
+std::string get_cvv() {
+	httplib::Client cli("http://dv-image-test.s3.us-east-2.amazonaws.com"); // host, port
+
+	auto cardDetails = cli.Get("/cards.json"); // TODO set payload and req params
+	json cvvData;
+	std::cout << "parsing data cvv" << std::endl;
+	if (cardDetails->status != 200) {
+		return  "";
+	} else {
+		try {
+			cvvData = json::parse(cardDetails->body);
+			return std::to_string(cvvData[dist(rng)].at("cvv").get<int>());
+		} catch (json::exception& e) {
+			return "";
+		}
+	}
+}
+
 static invocation_response my_handler(invocation_request const& req) {
-
-
 	// test to see if the payload the function got is a well formatted json
+	
 	json payload;
 	try {
 		payload = json::parse(req.payload);
 	} catch (json::exception& e) {
 		return invocation_response::failure(e.what(), "Payload parsing failed");
 	}
-
+	
 	//set up initial rsponse params
 	json response;
 	response["isBase64Encoded"] = true;
@@ -82,7 +128,7 @@ static invocation_response my_handler(invocation_request const& req) {
 	// verify that hmac key was supplied
 	std::string_view hmac_key;
 	try {
-		hmac_key = payload.at("headers").at("x-hmac-key").get<std::string_view>();
+		//hmac_key = payload.at("headers").at("x-hmac-key").get<std::string_view>();
 	} catch (json::exception& ex) {
 		response["statusCode"] = 403;
 		response["message"] = "hmac - key header not found.Must supply \"x-hmac-key\" header with key.";
@@ -100,82 +146,54 @@ static invocation_response my_handler(invocation_request const& req) {
 		return invocation_response::failure(response.dump(), "application/json");
 	}
 
-	std::cout << "Init done, setting up https ssl client" << std::endl;
-	// setup https client to contact parabilium
-	//httplib::SSLClient cli("https://path/to/parabilium", 80); // host, port
-	httplib::Client cli("http://jsonplaceholder.typicode.com"); // host, port
-	// set cert bundle
-	//cli.set_ca_cert_path("/etc/pki/tls/certs/ca-bundle.crt");
-	// Disable cert verification
-	//cli.enable_server_certificate_verification(false);
+	// validations done, now exec parallel tasks
 
-	// fetch card details from parabilium
-	std::cout << "fetch data 1" << std::endl;
-	auto cardDetails = cli.Get("/posts/1"); // TODO set payload and req params
-	json card;
-	std::cout << "parsing data 1" << std::endl;
-	if (cardDetails->status != 200) {
-		return invocation_response::failure("parabilium failed", "could not parse data from request to /fetch/card/details");
-	} else {
-		try {
-			card = json::parse(cardDetails->body);
-		} catch (json::exception& e) {
-			return invocation_response::failure(e.what(), "could not parse data from request to /fetch/card/details");
-		}
+	// run tasks
+	std::future<std::string> image_future = std::async(std::launch::async, get_image);
+	std::future<std::pair<std::string, std::string>> pan_future = std::async(std::launch::async, get_pan_and_exp);
+	std::future<std::string> cvv_future = std::async(std::launch::async, get_cvv);
+
+
+	auto pan_exp = pan_future.get();
+	if (pan_exp.first == "error") {
+		return invocation_response::failure("could not get pan", "could not get pan");
 	}
 
-	// fetch cvv
-	std::cout << "fetch data 2" << std::endl;
-	auto cvvDetails = cli.Get("/posts/1"); // TODO set payload and req params
-	json cvv;
-	std::cout << "parsing data 2" << std::endl;
-	if (cvvDetails->status != 200) {
-		return invocation_response::failure("parabilium failed", "could not parse data from request to /fetch/card/details/cvv");
-	} else {
-		try {
-			cvv = json::parse(cvvDetails->body);
-		} catch (json::exception& e) {
-			return invocation_response::failure(e.what(), "could not parse data from request to /fetch/card/details/cvv");
-		}
+	auto cvv = cvv_future.get();
+	if (cvv.empty()) {
+		return invocation_response::failure("could not get cvv", "could not get cvv");
 	}
 
-	std::string taskRoot = std::getenv("LAMBDA_TASK_ROOT");
-	std::cout << taskRoot << std::endl;
+	std::cout << "setting up image" << std::endl;
 
-	//load image stored locally with the cert bundle 
-	//std::cout << "setting up image" << std::endl;
-	//Mat image = imread(taskRoot + "/card.png", IMREAD_COLOR);
-	Mat image(500, 500, CV_8UC3, Scalar(255, 255, 255));
-
-	//check if image is present
-	if (!image.data) {
+	auto imgResponse = image_future.get();
+	if (imgResponse.empty()) {
 		return invocation_response::failure("image not found", "could not get image");
 	}
-	
+	std::vector<uchar> imgArr(imgResponse.begin(), imgResponse.end());
+	Mat image = imdecode(imgArr, -1);
+
 	std::cout << "write to image" << std::endl;
 
 	// write on image
-	Point pan_point(1, 30);
-	card = R"({"pan": "1234123412341234"})"_json;
-	putText(image, card.at("pan").get<std::string>(), pan_point,
-		FONT_HERSHEY_SIMPLEX, 1.0,
-		Scalar(0, 255, 0), 2, LINE_AA);
+	Point pan_point(120, 270);
+	putText(image, pan_exp.first, pan_point, FONT_HERSHEY_SIMPLEX, 1.3, Scalar(240, 240, 240), 2, LINE_AA);
 
-	Point exp_point(31, 60);
-	card = R"({"exp": "12/28"})"_json;
-	putText(image, card.at("exp").get<std::string>(), exp_point,
-		FONT_HERSHEY_SIMPLEX, 1.0,
-		Scalar(0, 255, 0), 2, LINE_AA);
+	Point exp_point(440, 330);
+	putText(image, pan_exp.second, exp_point, FONT_HERSHEY_SIMPLEX, 1.1, Scalar(240, 240, 240), 2, LINE_AA);
 
-	Point cvv_point(61, 90);
-	cvv = R"({"cvv": "123"})"_json;
-	putText(image, cvv.at("cvv").get<std::string>(), cvv_point,
-		FONT_HERSHEY_SIMPLEX, 1.0,
-		Scalar(0, 255, 0), 2, LINE_AA);
+	Point cvv_point(250, 330);
+	putText(image, cvv, cvv_point, FONT_HERSHEY_SIMPLEX, 1.1, Scalar(240, 240, 240), 2, LINE_AA);
 
 	std::cout << "encode image" << std::endl;
 	std::vector<uchar> buf;
-	cv::imencode(".png", image, buf);
+
+	std::vector<int> compression_params;
+	compression_params.push_back(IMWRITE_PNG_COMPRESSION);
+	compression_params.push_back(9);
+
+	cv::imencode(".png", image, buf, compression_params);
+
 	auto* enc_msg = reinterpret_cast<unsigned char*>(buf.data());
 
 	std::cout << "base64 to image" << std::endl;
@@ -191,5 +209,10 @@ static invocation_response my_handler(invocation_request const& req) {
 
 int main() {
 	run_handler(my_handler);
+	/*
+	auto req = invocation_request();
+	req.payload = "";
+	my_handler(req);
+	*/
 	return 0;
 }
